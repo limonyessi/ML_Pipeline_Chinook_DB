@@ -1,0 +1,243 @@
+PIPELINE SUPABASE -> POSTGRES -> ML API
+=================================================
+
+This manual walks you through (1) installing Docker on Windows, (2) setting up a PostgreSQL database locally (optionally mirroring a Supabase project), (3) configuring environment variables, and (4) running this pipeline that periodically trains a simple scikit-learn regression model from data in Postgres / Supabase and serves predictions through a FastAPI endpoint.
+
+-------------------------------------------------
+1. High-Level Architecture
+-------------------------------------------------
+Supabase (managed Postgres) / Local Postgres -> Cron container trains model -> Saves model artifact (joblib) -> API container loads model -> /api/model endpoint performs prediction.
+
+Components:
+ - Docker image: Builds Python 3.11 environment with FastAPI + training script.
+ - Service: api (FastAPI) exposes endpoints.
+	* GET /api/health-check
+	* POST /api/model (predicts using trained model)
+ - Service: cron-train-model (invokes training logic on startup or via external scheduling; currently runs immediately when container starts).
+ - Model artifact: assets/modelo_entrenado.pkl (path set via MODELO_ENTRENADO env var).
+ - Database table expected: Dataset (columns: x NUMERIC/INT, y NUMERIC/INT) in Supabase/Postgres.
+
+-------------------------------------------------
+2. Prerequisites
+-------------------------------------------------
+ - Windows 10/11 with admin rights.
+ - Internet access.
+ - A Supabase project (optional if you only want local Postgres for testing).
+ - Git installed (optional but recommended).
+ - curl (comes with recent Windows builds via Windows Terminal or install separately) OR use Postman.
+
+-------------------------------------------------
+3. Install Docker Desktop (Windows)
+-------------------------------------------------
+1. Download: https://www.docker.com/products/docker-desktop/
+2. Run installer, enable required Windows features (WSL2 backend recommended).
+3. After install, open Docker Desktop and ensure it runs without errors.
+4. In cmd run: docker --version (should show a version string).
+
+Troubleshooting:
+ - If virtualization disabled, enable in BIOS and ensure Hyper-V or WSL2 is configured.
+ - If behind corporate proxy, configure proxy in Docker Desktop Settings > Resources > Proxies.
+
+-------------------------------------------------
+4. (Option A) Use Supabase Database
+-------------------------------------------------
+1. Go to https://app.supabase.com/ and create/sign into your project.
+2. In the SQL editor, create the table:
+	CREATE TABLE public."Dataset" (
+		 x numeric NOT NULL,
+		 y numeric NOT NULL
+	);
+3. Insert sample data (simple linear relation with some noise):
+	INSERT INTO public."Dataset" (x, y)
+	SELECT i, i * 2 + (random()*4 - 2) FROM generate_series(1,100) AS s(i);
+4. Obtain connection details (Project Settings -> Database): host, port, database, user, password. For pooled connections you may use the transaction pooler host/port.
+
+-------------------------------------------------
+5. (Option B) Run Local Postgres via Docker
+-------------------------------------------------
+If you prefer local development or to test without Supabase.
+
+1. In project root create docker-compose.local-db.yml (optional) like:
+	version: '3'
+	services:
+	  postgres:
+		 image: postgres:15
+		 container_name: local-postgres
+		 environment:
+			POSTGRES_USER: postgres
+			POSTGRES_PASSWORD: postgres
+			POSTGRES_DB: supadb
+		 ports:
+			- "5432:5432"
+		 volumes:
+			- ./pgdata:/var/lib/postgresql/data
+
+2. Start it:
+	docker compose -f docker-compose.local-db.yml up -d
+3. Create table + sample data (using psql or GUI like DBeaver):
+	psql -h localhost -U postgres -d supadb -c "CREATE TABLE \"Dataset\" (x numeric NOT NULL, y numeric NOT NULL);"
+	psql -h localhost -U postgres -d supadb -c "INSERT INTO \"Dataset\" (x,y) SELECT i, i*2 + (random()*4 -2) FROM generate_series(1,100) AS s(i);"
+
+-------------------------------------------------
+6. Environment Variables (.env)
+-------------------------------------------------
+Create a .env file at project root (same level as docker-compose.yml). Example:
+
+ SUPABASE_USER=your_db_user
+ SUPABASE_PASSWORD=your_db_password
+ SUPABASE_HOST=your_db_host_or_localhost
+ SUPABASE_PORT=5432
+ SUPABASE_DBNAME=your_db_name
+ MODELO_ENTRENADO=/app/assets/modelo_entrenado.pkl
+
+Adjust values for Supabase or local Postgres. Ensure the path in MODELO_ENTRENADO matches what the training script uses. The repository already includes assets/modelo_entrenado.pkl placeholder; training will overwrite it.
+
+Security Note: Never commit .env with real credentials. Add to .gitignore if not already.
+
+-------------------------------------------------
+7. Project Structure (Key Files)
+-------------------------------------------------
+ app.py               -> Entry point deciding which app to start.
+ Dockerfile           -> Builds Python environment.
+ docker-compose.yml   -> Defines api and cron-train-model services (expects external network 'web').
+ src/apps/api_app/    -> FastAPI application.
+ src/apps/cron_train_model_app/ -> Training app wrapper.
+ src/contexts/train_model/TrainModel.py -> Training logic (connects to DB, fetches Dataset, trains LinearRegression).
+ src/contexts/api/controllers/TrainModelController.py -> Loads model and predicts.
+ assets/modelo_entrenado.pkl -> Serialized model artifact (joblib).
+
+-------------------------------------------------
+8. Building the Docker Image
+-------------------------------------------------
+From project root:
+ docker build -t api-model:latest .
+
+This installs dependencies from requirements.txt. If build fails due to psycopg2, ensure build tools are available (the python:3.11 base image already has needed libs for binary wheel).
+
+-------------------------------------------------
+9. Running Services (Compose)
+-------------------------------------------------
+The provided docker-compose.yml expects an external network named 'web'. If you do not have it, create it:
+ docker network create web
+
+Then start containers:
+ docker compose up -d
+
+Services:
+ - api on port 8000
+ - cron-train-model (runs training on start)
+
+Logs:
+ docker logs api -f
+ docker logs train-model -f
+
+If you change code under src/ while container running, because of the volume mount (./src:/app/src) you can restart the api container to reflect changes.
+
+-------------------------------------------------
+10. Triggering / Re-Training
+-------------------------------------------------
+The cron-train-model service currently just calls TrainModel.entrenarModelo() once on startup. To retrain manually you can:
+ - Restart the cron container:
+	docker restart train-model
+ - Or (advanced) exec into api container and run training directly:
+	docker exec -it api python -c "from src.contexts.train_model.TrainModel import TrainModel; TrainModel.entrenarModelo()"
+
+On success you'll see 'modelo entrenado' in logs and the file at assets/modelo_entrenado.pkl will be updated.
+
+-------------------------------------------------
+11. API Usage
+-------------------------------------------------
+Health check:
+ curl http://localhost:8000/api/health-check
+ -> {"status":"OK"}
+
+Prediction endpoint (POST /api/model) expects JSON body with fields:
+ {
+	"sex": "M" | "F",
+	"nuevo": <integer feature>
+ }
+
+Example:
+ curl -X POST http://localhost:8000/api/model ^
+	-H "Content-Type: application/json" ^
+	-d "{\"sex\":\"M\", \"nuevo\": 6}"
+
+Returns:
+ {"status":"OK","result": <predicted_value>}
+
+Note: Currently the 'sex' field is not used by the model (only 'nuevo' becomes x). It is validated and could be extended in future versions.
+
+-------------------------------------------------
+12. Local (Non-Docker) Run (Optional)
+-------------------------------------------------
+1. Create a virtual environment:
+	py -3.11 -m venv .venv
+	.venv\\Scripts\\activate
+2. Install dependencies:
+	pip install -r requirements.txt
+3. Ensure .env exists (as above).
+4. Train model once:
+	python -c "from src.contexts.train_model.TrainModel import TrainModel; TrainModel.entrenarModelo()"
+5. Start API:
+	python app.py --app ApiApp
+6. Call endpoints as shown earlier.
+
+-------------------------------------------------
+13. Common Issues & Troubleshooting
+-------------------------------------------------
+Issue: 'no se lee el env' in training logs.
+Cause: .env not mounted or variable names missing.
+Fix: Ensure .env exists and is referenced in docker-compose volumes/env_file. Rebuild image if needed.
+
+Issue: psycopg2 connection error.
+Cause: Wrong hostname/port or Supabase firewall.
+Fix: Use the provided pooled connection info in Supabase. Verify port (usually 6543 for pooler, 5432 for direct). Match SUPABASE_PORT.
+
+Issue: Model file not found when calling /api/model.
+Cause: Training hasn't run or MODELO_ENTRENADO path mismatch.
+Fix: Check that assets directory is mounted and file exists: docker exec -it api ls -l /app/assets
+
+Issue: docker-compose external network error.
+Cause: Network 'web' missing.
+Fix: docker network create web
+
+Issue: Table "Dataset" does not exist.
+Fix: Create table and insert sample data as shown.
+
+-------------------------------------------------
+14. Extending the Pipeline
+-------------------------------------------------
+Ideas:
+ - Add proper scheduling (use cron inside container or an external orchestrator) to run training periodically.
+ - Version model artifacts with timestamps.
+ - Add metrics (MSE, R2) logging and an endpoint to fetch them.
+ - Expand schema to multiple features; update PredictorRequest accordingly.
+ - Containerize Postgres as part of the same compose for local offline dev (remove external network dependency).
+
+-------------------------------------------------
+15. Cleaning Up
+-------------------------------------------------
+Stop containers:
+ docker compose down
+
+Remove image:
+ docker rmi api-model:latest
+
+Remove local Postgres (if used):
+ docker compose -f docker-compose.local-db.yml down -v
+
+-------------------------------------------------
+16. Quick Start Summary
+-------------------------------------------------
+1. Create .env with DB + MODELO_ENTRENADO.
+2. Create 'web' network (docker network create web).
+3. docker build -t api-model:latest .
+4. docker compose up -d
+5. Wait for train-model logs to show 'modelo entrenado'.
+6. curl http://localhost:8000/api/health-check
+7. POST prediction request.
+
+You're set! 🚀
+
+For questions or improvements, extend this manual or README.
+

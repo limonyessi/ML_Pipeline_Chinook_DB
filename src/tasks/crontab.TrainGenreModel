@@ -1,0 +1,2 @@
+# Train genre classification model every day at 2 AM
+0 2 * * * /usr/local/bin/python3 /app/app.py -app TrainModel -type genre -r "02:00" >> /app/logs/output.txt 2>> /app/logs/errors.txt

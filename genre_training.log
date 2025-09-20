@@ -1,0 +1,45 @@
+
+
+ 🏁 start app: TrainModel, model_type: genre
+start train model cron in hour: None, model_type: genre
+Environment variables loaded successfully
+Retrieved 59 customer records for training
+Sample data:
+   customer_id preferred_genre  ... total_tracks_bought    genre_spending_ratio
+0            1            Rock  ...                  38  0.34982332155477031802
+1            2            Rock  ...                  38  0.44736842105263157895
+2            3           Metal  ...                  38  0.24987380111055022716
+3            4            Rock  ...                  38  0.42478546188793538617
+4            5            Rock  ...                  38  0.36558345642540620384
+
+[5 rows x 5 columns]
+
+Genre distribution:
+preferred_genre
+Rock                  43
+Latin                  8
+Metal                  5
+TV Shows               2
+Alternative & Punk     1
+Name: count, dtype: int64
+Traceback (most recent call last):
+  File "/app/app.py", line 44, in <module>
+    main()
+  File "/app/app.py", line 29, in main
+    Cron_Train_Model_App.start(
+  File "/app/src/apps/cron_train_model_app/CronTrainModelApp.py", line 13, in start
+    TrainGenreModel.entrenarModeloGenero()
+  File "/app/src/contexts/train_model/TrainGenreModel.py", line 128, in entrenarModeloGenero
+    X_train, X_test, y_train, y_test = train_test_split(
+                                       ^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sklearn/utils/_param_validation.py", line 216, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sklearn/model_selection/_split.py", line 2872, in train_test_split
+    train, test = next(cv.split(X=arrays[0], y=stratify))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sklearn/model_selection/_split.py", line 1909, in split
+    for train, test in self._iter_indices(X, y, groups):
+  File "/usr/local/lib/python3.11/site-packages/sklearn/model_selection/_split.py", line 2318, in _iter_indices
+    raise ValueError(
+ValueError: The least populated class in y has only 1 member, which is too few. The minimum number of groups for any class cannot be less than 2.
