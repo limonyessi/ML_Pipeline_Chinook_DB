@@ -1,0 +1,21 @@
+{
+  "cSpell.words": [
+    "dmatrix",
+    "dtypes",
+    "fastapi",
+    "gmap",
+    "GMAPS",
+    "pydantic",
+    "pytz",
+    "sklearn",
+    "uvicorn",
+    "xgboost"
+  ],
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.autopep8"
+  },
+  "python.formatting.provider": "none",
+  "makefile.configureOnOpen": false,
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python-envs.pythonProjects": []
+}
