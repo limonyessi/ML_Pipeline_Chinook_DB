@@ -22,7 +22,7 @@ The model uses a **Random Forest Classifier** that:
 
 - Extracts customer purchase patterns by genre
 - Identifies each customer's most preferred genre based on spending
-- Trains on features like location, spending habits, and genre preferences
+- Trains on features like spending habits and genre preferences
 - Saves the trained model for predictions
 
 ### 3. Prediction Process
@@ -233,8 +233,8 @@ docker logs api -f
 For best results, ensure your database has:
 
 - At least 100+ customers with purchase history
-- Diverse geographic locations
 - Multiple genres with sufficient purchase data
 - Customers with varied spending patterns
+- Rich purchase history across different music genres
 
 The model performs better with more diverse and comprehensive training data.

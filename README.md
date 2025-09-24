@@ -9,8 +9,7 @@ Quick Start:
 3. Create external network if not present: `docker network create web`
 4. Start services: `docker compose up -d`
 5. Check health: `curl http://localhost:8000/api/health-check`
-6. Predict (regression): POST `http://localhost:8000/api/model` with body `{ "sex": "M", "nuevo": 6 }`.
-7. Predict genre: POST `http://localhost:8000/api/model` with customer data `{ "customer_id": 12 }` (see GENRE_PREDICTION_GUIDE.md).
+6. Predict genre: POST `http://localhost:8000/api/model` with customer data `{ "customer_id": 12 }` (see GENRE_PREDICTION_GUIDE.md).
 
 ## New Feature: Music Genre Prediction
 

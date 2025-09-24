@@ -6,16 +6,16 @@ This manual walks you through (1) installing Docker on Windows, (2) setting up a
 -------------------------------------------------
 1. High-Level Architecture
 -------------------------------------------------
-Supabase (managed Postgres) / Local Postgres -> Cron container trains model -> Saves model artifact (joblib) -> API container loads model -> /api/model endpoint performs prediction.
+Supabase (managed Postgres) / Local Postgres -> Cron container trains models -> Saves model artifacts (joblib) -> API container loads models -> /api/model endpoint performs genre predictions.
 
 Components:
  - Docker image: Builds Python 3.11 environment with FastAPI + training script.
  - Service: api (FastAPI) exposes endpoints.
 	* GET /api/health-check
-	* POST /api/model (predicts using trained model)
+	* POST /api/model (predicts music genre for customers)
  - Service: cron-train-model (invokes training logic on startup or via external scheduling; currently runs immediately when container starts).
- - Model artifact: assets/modelo_entrenado.pkl (path set via MODELO_ENTRENADO env var).
- - Database table expected: Dataset (columns: x NUMERIC/INT, y NUMERIC/INT) in Supabase/Postgres.
+ - Model artifacts: assets/modelo_entrenado.pkl (regression model) and assets/modelo_genero_entrenado.pkl (genre classification model).
+ - Database tables expected: Chinook schema with customer, invoice, track, genre tables for genre prediction; Dataset table for regression model.
 
 -------------------------------------------------
 2. Prerequisites
@@ -89,8 +89,9 @@ Create a .env file at project root (same level as docker-compose.yml). Example:
  SUPABASE_PORT=5432
  SUPABASE_DBNAME=your_db_name
  MODELO_ENTRENADO=/app/assets/modelo_entrenado.pkl
+ MODELO_GENERO_ENTRENADO=/app/assets/modelo_genero_entrenado.pkl
 
-Adjust values for Supabase or local Postgres. Ensure the path in MODELO_ENTRENADO matches what the training script uses. The repository already includes assets/modelo_entrenado.pkl placeholder; training will overwrite it.
+Adjust values for Supabase or local Postgres. Ensure the paths match what the training scripts use. The repository includes placeholder model files; training will overwrite them.
 
 Security Note: Never commit .env with real credentials. Add to .gitignore if not already.
 
@@ -103,8 +104,10 @@ Security Note: Never commit .env with real credentials. Add to .gitignore if not
  src/apps/api_app/    -> FastAPI application.
  src/apps/cron_train_model_app/ -> Training app wrapper.
  src/contexts/train_model/TrainModel.py -> Training logic (connects to DB, fetches Dataset, trains LinearRegression).
- src/contexts/api/controllers/TrainModelController.py -> Loads model and predicts.
- assets/modelo_entrenado.pkl -> Serialized model artifact (joblib).
+ src/contexts/train_model/TrainGenreModel.py -> Genre training logic (connects to DB, trains Random Forest Classifier).
+ src/contexts/api/controllers/GenrePredictionController.py -> Loads genre model and predicts customer preferences.
+ assets/modelo_entrenado.pkl -> Serialized regression model artifact (joblib).
+ assets/modelo_genero_entrenado.pkl -> Serialized genre classification model artifact (joblib).
 
 -------------------------------------------------
 8. Building the Docker Image
@@ -134,41 +137,58 @@ Logs:
 If you change code under src/ while container running, because of the volume mount (./src:/app/src) you can restart the api container to reflect changes.
 
 -------------------------------------------------
-10. Triggering / Re-Training
+10. Training Models
 -------------------------------------------------
-The cron-train-model service currently just calls TrainModel.entrenarModelo() once on startup. To retrain manually you can:
+The system supports two types of models:
+
+1. **Regression Model** (legacy): Uses Dataset table for simple linear regression
+2. **Genre Classification Model** (main feature): Predicts customer music genre preferences
+
+To train the genre classification model:
+ - Local: python app.py --app TrainModel --model-type genre  
+ - Docker: docker run --rm --env-file .env -v $(pwd)/assets:/app/assets api-model:latest python app.py --app TrainModel --model-type genre
+
+The cron-train-model service currently trains the regression model on startup. To train the genre model automatically, modify docker-compose.yml environment variables.
+
+On successful genre training, you'll see 'Modelo de género entrenado y guardado' in logs and the file at assets/modelo_genero_entrenado.pkl will be updated.
+
+-------------------------------------------------
+11. Triggering / Re-Training
+-------------------------------------------------
+The cron-train-model service currently just calls TrainModel.entrenarModelo() once on startup for the regression model. To retrain manually you can:
  - Restart the cron container:
 	docker restart train-model
  - Or (advanced) exec into api container and run training directly:
 	docker exec -it api python -c "from src.contexts.train_model.TrainModel import TrainModel; TrainModel.entrenarModelo()"
+ - For genre model training:
+	docker exec -it api python app.py --app TrainModel --model-type genre
 
-On success you'll see 'modelo entrenado' in logs and the file at assets/modelo_entrenado.pkl will be updated.
+On success you'll see 'modelo entrenado' in logs and the model files will be updated.
 
 -------------------------------------------------
-11. API Usage
+12. API Usage
 -------------------------------------------------
 Health check:
  curl http://localhost:8000/api/health-check
  -> {"status":"OK"}
 
-Prediction endpoint (POST /api/model) expects JSON body with fields:
+Genre Prediction endpoint (POST /api/model) expects JSON body with customer_id:
  {
-	"sex": "M" | "F",
-	"nuevo": <integer feature>
+	"customer_id": 12
  }
 
 Example:
  curl -X POST http://localhost:8000/api/model ^
 	-H "Content-Type: application/json" ^
-	-d "{\"sex\":\"M\", \"nuevo\": 6}"
+	-d "{\"customer_id\": 12}"
 
 Returns:
- {"status":"OK","result": <predicted_value>}
+ {"Genre": "Rock"}
 
-Note: Currently the 'sex' field is not used by the model (only 'nuevo' becomes x). It is validated and could be extended in future versions.
+The genre prediction uses machine learning to analyze the customer's purchase history and predict their preferred music genre.
 
 -------------------------------------------------
-12. Local (Non-Docker) Run (Optional)
+13. Local (Non-Docker) Run (Optional)
 -------------------------------------------------
 1. Create a virtual environment:
 	py -3.11 -m venv .venv
@@ -176,14 +196,14 @@ Note: Currently the 'sex' field is not used by the model (only 'nuevo' becomes x
 2. Install dependencies:
 	pip install -r requirements.txt
 3. Ensure .env exists (as above).
-4. Train model once:
-	python -c "from src.contexts.train_model.TrainModel import TrainModel; TrainModel.entrenarModelo()"
+4. Train genre model:
+	python app.py --app TrainModel --model-type genre
 5. Start API:
 	python app.py --app ApiApp
 6. Call endpoints as shown earlier.
 
 -------------------------------------------------
-13. Common Issues & Troubleshooting
+14. Common Issues & Troubleshooting
 -------------------------------------------------
 Issue: 'no se lee el env' in training logs.
 Cause: .env not mounted or variable names missing.
@@ -194,8 +214,8 @@ Cause: Wrong hostname/port or Supabase firewall.
 Fix: Use the provided pooled connection info in Supabase. Verify port (usually 6543 for pooler, 5432 for direct). Match SUPABASE_PORT.
 
 Issue: Model file not found when calling /api/model.
-Cause: Training hasn't run or MODELO_ENTRENADO path mismatch.
-Fix: Check that assets directory is mounted and file exists: docker exec -it api ls -l /app/assets
+Cause: Genre model hasn't been trained or MODELO_GENERO_ENTRENADO path mismatch.
+Fix: Train the genre model first: python app.py --app TrainModel --model-type genre. Check that assets directory is mounted and file exists: docker exec -it api ls -l /app/assets
 
 Issue: docker-compose external network error.
 Cause: Network 'web' missing.
@@ -205,7 +225,7 @@ Issue: Table "Dataset" does not exist.
 Fix: Create table and insert sample data as shown.
 
 -------------------------------------------------
-14. Extending the Pipeline
+15. Extending the Pipeline
 -------------------------------------------------
 Ideas:
  - Add proper scheduling (use cron inside container or an external orchestrator) to run training periodically.
@@ -215,7 +235,7 @@ Ideas:
  - Containerize Postgres as part of the same compose for local offline dev (remove external network dependency).
 
 -------------------------------------------------
-15. Cleaning Up
+16. Cleaning Up
 -------------------------------------------------
 Stop containers:
  docker compose down
@@ -227,15 +247,15 @@ Remove local Postgres (if used):
  docker compose -f docker-compose.local-db.yml down -v
 
 -------------------------------------------------
-16. Quick Start Summary
+17. Quick Start Summary
 -------------------------------------------------
-1. Create .env with DB + MODELO_ENTRENADO.
+1. Create .env with DB credentials + model paths.
 2. Create 'web' network (docker network create web).
 3. docker build -t api-model:latest .
 4. docker compose up -d
-5. Wait for train-model logs to show 'modelo entrenado'.
+5. Train genre model: docker exec -it api python app.py --app TrainModel --model-type genre
 6. curl http://localhost:8000/api/health-check
-7. POST prediction request.
+7. POST genre prediction: curl -X POST http://localhost:8000/api/model -H "Content-Type: application/json" -d '{"customer_id": 12}'
 
 You're set! 🚀
 
