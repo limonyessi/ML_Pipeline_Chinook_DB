@@ -83,7 +83,7 @@ You can trigger training manually via the API by running the training container.
 
 #### Genre Prediction Endpoint
 
-**Endpoint**: `POST /api/predict-genre`
+**Endpoint**: `POST /api/model`
 
 **Request Body**:
 
@@ -120,7 +120,7 @@ You can trigger training manually via the API by running the training container.
 ### cURL Example
 
 ```bash
-curl -X POST http://localhost:8000/api/predict-genre \
+curl -X POST http://localhost:8000/api/model \
   -H "Content-Type: application/json" \
   -d '{
     "customer_id": 12
@@ -132,7 +132,7 @@ curl -X POST http://localhost:8000/api/predict-genre \
 ```python
 import requests
 
-url = "http://localhost:8000/api/predict-genre"
+url = "http://localhost:8000/api/model"
 data = {
     "customer_id": 25
 }
