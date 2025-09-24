@@ -12,7 +12,7 @@ def main():
     )
     parser.add_argument('-app', '--application', default=None, required=False)
     parser.add_argument('-r', '--range', default=None, required=False)
-    parser.add_argument('-type', '--model-type', default="genre", required=False)
+    parser.add_argument('-type', '--model-type', default="regression", required=False)
 
     args = parser.parse_args()
 
@@ -28,7 +28,7 @@ def main():
         
         Cron_Train_Model_App.start(
             hour=args.range,
-            model_type="genre"
+            model_type=model_type
         )
         return
 

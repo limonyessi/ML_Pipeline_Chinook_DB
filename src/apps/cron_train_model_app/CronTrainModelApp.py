@@ -5,7 +5,7 @@ from src.contexts.train_model.TrainGenreModel import TrainGenreModel
 
 
 class CronTrainModelApp:
-    def start(self, *, hour, model_type="genre"):
+    def start(self, *, hour, model_type="regression"):
         ########################
         print(f"start train model cron in hour: {hour}, model_type: {model_type}", flush=True)
         
