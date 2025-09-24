@@ -1,13 +1,15 @@
 import os
 import joblib
 import numpy as np
+import psycopg2
 from typing import Dict, Any
+from dotenv import load_dotenv
 
 from src.contexts.api.models.GenrePredictionRequest import (
     GenrePredictionRequest, 
-    GenrePredictionResponse, 
-    GenrePrediction
+    GenrePredictionResponse
 )
+from src.contexts.train_model.TrainGenreModel import TrainGenreModel
 
 
 class GenrePredictionController:
@@ -33,74 +35,79 @@ class GenrePredictionController:
             feature_columns = model_data['feature_columns']
             genre_classes = model_data['genre_classes']
             
-            # Prepare customer features
-            customer_features = self._prepare_features(request, encoders)
+            # Extract features from database using customer_id
+            customer_features, customer_profile = self._get_features_from_customer_id(request.customer_id)
+            if customer_features is None:
+                return {
+                    "error": f"Customer with ID {request.customer_id} not found."
+                }
             
             # Make prediction
             prediction_encoded = model.predict([customer_features])[0]
-            prediction_probabilities = model.predict_proba([customer_features])[0]
             
             # Decode the prediction
             predicted_genre = encoders['genre'].inverse_transform([prediction_encoded])[0]
-            confidence = max(prediction_probabilities)
             
-            # Create probability dictionary
-            all_probabilities = {}
-            for i, genre in enumerate(genre_classes):
-                all_probabilities[genre] = float(prediction_probabilities[i])
+            # Create simplified response
+            response = GenrePredictionResponse(Genre=predicted_genre)
             
-            # Sort probabilities by confidence
-            sorted_probs = dict(sorted(all_probabilities.items(), 
-                                     key=lambda x: x[1], reverse=True))
-            
-            # Create response
-            prediction_obj = GenrePrediction(
-                genre=predicted_genre,
-                confidence=float(confidence),
-                all_probabilities=sorted_probs
-            )
-            
-            customer_profile = {
-                "total_spent": request.total_spent,
-                "total_tracks_bought": request.total_tracks_bought,
-                "genre_spending_ratio": request.genre_spending_ratio
-            }
-            
-            response = GenrePredictionResponse(
-                status="OK",
-                prediction=prediction_obj,
-                customer_profile=customer_profile
-            )
-            
-            print(f"Predicted genre: {predicted_genre} with confidence: {confidence:.3f}")
+            print(f"Predicted genre: {predicted_genre} for customer {request.customer_id}")
             
             return response.dict()
             
         except Exception as e:
             print(f"Error in genre prediction: {str(e)}")
             return {
-                "status": "ERROR",
-                "message": f"Prediction failed: {str(e)}",
-                "prediction": None,
-                "customer_profile": None
+                "error": f"Prediction failed: {str(e)}"
             }
     
-    def _prepare_features(self, request: GenrePredictionRequest, encoders: Dict[str, Any]) -> list:
+    def _get_features_from_customer_id(self, customer_id: int):
         """
-        Prepare customer features for the model prediction.
-        Feature order: ['total_spent', 'total_tracks_bought', 'genre_spending_ratio']
+        Extract customer features from database using customer_id.
+        Returns tuple of (features_list, customer_profile_dict)
         """
         try:
-            # Prepare feature vector (no geographic features needed)
-            features = [
-                float(request.total_spent),
-                int(request.total_tracks_bought),
-                float(request.genre_spending_ratio)
-            ]
+            # Load environment variables for database connection
+            load_dotenv("/app/.env")
+            USER = os.getenv("SUPABASE_USER")
+            PASSWORD = os.getenv("SUPABASE_PASSWORD")
+            HOST = os.getenv("SUPABASE_HOST")
+            PORT = os.getenv("SUPABASE_PORT")
+            DBNAME = os.getenv("SUPABASE_DBNAME")
             
-            return features
+            if not all([USER, PASSWORD, HOST, PORT, DBNAME]):
+                print("Error: Database environment variables not loaded")
+                return None, None
             
+            with psycopg2.connect(
+                user=USER,
+                password=PASSWORD,
+                host=HOST,
+                port=PORT,
+                dbname=DBNAME
+            ) as connection:
+                
+                customer_data = TrainGenreModel.get_customer_features(customer_id, connection)
+                
+                if customer_data is None:
+                    return None, None
+                
+                # Prepare features in the same order as training
+                features = [
+                    customer_data['total_spent'],
+                    customer_data['total_tracks_bought'],
+                    customer_data['genre_spending_ratio']
+                ]
+                
+                customer_profile = {
+                    "customer_id": customer_data['customer_id'],
+                    "total_spent": customer_data['total_spent'],
+                    "total_tracks_bought": customer_data['total_tracks_bought'],
+                    "genre_spending_ratio": customer_data['genre_spending_ratio']
+                }
+                
+                return features, customer_profile
+                
         except Exception as e:
-            print(f"Error preparing features: {str(e)}")
-            # Return default features if there's an error
-            return [0.0, 0, 0.0]
+            print(f"Error extracting customer features from database: {e}")
+            return None, None

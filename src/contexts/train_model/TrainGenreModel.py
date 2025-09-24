@@ -15,6 +15,88 @@ from sklearn.metrics import classification_report, accuracy_score
 class TrainGenreModel:
 
     @staticmethod
+    def get_customer_features(customer_id, connection):
+        """
+        Extract features for a specific customer from the database.
+        Returns a dictionary with the customer's features or None if customer not found.
+        """
+        try:
+            with connection.cursor() as cursor:
+                # Query to get customer features - same logic as training
+                query = """
+                WITH customer_genre_purchases AS (
+                    SELECT 
+                        c.customer_id,
+                        g.name as genre_name,
+                        COUNT(*) as purchase_count,
+                        SUM(il.quantity) as total_quantity,
+                        SUM(il.unit_price * il.quantity) as total_spent_on_genre
+                    FROM customer c
+                    JOIN invoice i ON c.customer_id = i.customer_id
+                    JOIN invoice_line il ON i.invoice_id = il.invoice_id
+                    JOIN track t ON il.track_id = t.track_id
+                    JOIN genre g ON t.genre_id = g.genre_id
+                    WHERE c.customer_id = %s
+                    GROUP BY c.customer_id, g.name
+                ),
+                customer_totals AS (
+                    SELECT 
+                        customer_id,
+                        SUM(total_spent_on_genre) as total_spent,
+                        SUM(total_quantity) as total_tracks_bought
+                    FROM customer_genre_purchases
+                    GROUP BY customer_id
+                ),
+                customer_preferred_genre AS (
+                    SELECT 
+                        cgp.customer_id,
+                        cgp.genre_name,
+                        cgp.total_spent_on_genre,
+                        ct.total_spent,
+                        ct.total_tracks_bought,
+                        (cgp.total_spent_on_genre / ct.total_spent) as genre_spending_ratio,
+                        ROW_NUMBER() OVER (PARTITION BY cgp.customer_id ORDER BY cgp.total_spent_on_genre DESC) as genre_rank
+                    FROM customer_genre_purchases cgp
+                    JOIN customer_totals ct ON cgp.customer_id = ct.customer_id
+                )
+                SELECT 
+                    customer_id,
+                    total_spent,
+                    total_tracks_bought,
+                    genre_spending_ratio
+                FROM customer_preferred_genre
+                WHERE genre_rank = 1
+                AND customer_id = %s;
+                """
+                
+                cursor.execute(query, (customer_id, customer_id))
+                row = cursor.fetchone()
+                
+                if row:
+                    return {
+                        'customer_id': row[0],
+                        'total_spent': float(row[1]) if row[1] else 0.0,
+                        'total_tracks_bought': int(row[2]) if row[2] else 0,
+                        'genre_spending_ratio': float(row[3]) if row[3] else 0.0
+                    }
+                else:
+                    # Customer exists but has no purchases - return default values
+                    cursor.execute("SELECT customer_id FROM customer WHERE customer_id = %s", (customer_id,))
+                    if cursor.fetchone():
+                        return {
+                            'customer_id': customer_id,
+                            'total_spent': 0.0,
+                            'total_tracks_bought': 0,
+                            'genre_spending_ratio': 0.0
+                        }
+                    else:
+                        return None  # Customer doesn't exist
+                        
+        except Exception as e:
+            print(f"Error extracting customer features: {e}")
+            return None
+
+    @staticmethod
     def entrenarModeloGenero():
         """
         Trains a classification model to predict customer music genre preferences

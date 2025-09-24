@@ -22,20 +22,20 @@ class ApiApp:
     def setup_routes(self):
         self.app.add_api_route(
             "/api/health-check",
-            HealthCheckController().execute, 
+            HealthCheckController().execute,
             methods=["GET"],
         )
         
        
         self.app.add_api_route(
-            "/api/model",
-            TrainModelController().execute, 
+            "/api/modelo",
+            GenrePredictionController().execute,
             methods=["POST"],
         )
         
         self.app.add_api_route(
             "/api/predict-genre",
-            GenrePredictionController().execute, 
+            GenrePredictionController().execute,
             methods=["POST"],
         )
 

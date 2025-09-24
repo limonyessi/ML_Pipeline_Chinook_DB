@@ -27,12 +27,11 @@ The model uses a **Random Forest Classifier** that:
 
 ### 3. Prediction Process
 
-When predicting for a new customer:
+When predicting for a customer:
 
-- Takes customer spending information
-
+- Takes customer ID as input
 - Uses the trained model to predict preferred genre
-- Returns the predicted genre with confidence scores
+- Returns the predicted genre in a simple format
 
 ## Database Schema Requirements
 
@@ -90,9 +89,7 @@ You can trigger training manually via the API by running the training container.
 
 ```json
 {
-  "total_spent": 45.50,
-  "total_tracks_bought": 15,
-  "genre_spending_ratio": 0.6
+  "customer_id": 12
 }
 ```
 
@@ -100,22 +97,15 @@ You can trigger training manually via the API by running the training container.
 
 ```json
 {
-  "status": "OK",
-  "prediction": {
-    "genre": "Rock",
-    "confidence": 0.85,
-    "all_probabilities": {
-      "Rock": 0.85,
-      "Pop": 0.10,
-      "Jazz": 0.03,
-      "Classical": 0.02
-    }
-  },
-  "customer_profile": {
-    "total_spent": 45.50,
-    "total_tracks_bought": 15,
-    "genre_spending_ratio": 0.6
-  }
+  "Genre": "Rock"
+}
+```
+
+**Error Response**:
+
+```json
+{
+  "error": "Customer with ID 999 not found."
 }
 ```
 
@@ -123,9 +113,7 @@ You can trigger training manually via the API by running the training container.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `total_spent` | float | No | Total amount spent by customer (defaults to 0.0) |
-| `total_tracks_bought` | int | No | Total tracks purchased (defaults to 0) |
-| `genre_spending_ratio` | float | No | Ratio of spending on preferred genre (0.0-1.0, defaults to 0.0) |
+| `customer_id` | int | Yes | The customer ID from your database |
 
 ## Example Usage
 
@@ -135,9 +123,7 @@ You can trigger training manually via the API by running the training container.
 curl -X POST http://localhost:8000/api/predict-genre \
   -H "Content-Type: application/json" \
   -d '{
-    "total_spent": 125.75,
-    "total_tracks_bought": 42,
-    "genre_spending_ratio": 0.4
+    "customer_id": 12
   }'
 ```
 
@@ -148,16 +134,13 @@ import requests
 
 url = "http://localhost:8000/api/predict-genre"
 data = {
-    "total_spent": 89.99,
-    "total_tracks_bought": 28,
-    "genre_spending_ratio": 0.7
+    "customer_id": 25
 }
 
 response = requests.post(url, json=data)
 result = response.json()
 
-print(f"Predicted genre: {result['prediction']['genre']}")
-print(f"Confidence: {result['prediction']['confidence']:.2%}")
+print(f"Predicted genre: {result['Genre']}")
 ```
 
 ## Scheduled Training
@@ -193,6 +176,8 @@ When training, the model will output:
 - **Classification Report**: Precision, recall, F1-score per genre
 - **Feature Importance**: Which features matter most for predictions
 
+Note: The API returns only the predicted genre for simplicity, but the model internally calculates confidence scores during training and evaluation.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -200,12 +185,13 @@ When training, the model will output:
 1. **"Genre model not found"**
    - Solution: Train the model first using the training command above
 
-2. **"Unknown country/state/city" warnings**
-   - These are normal for new locations not seen during training
-   - The model uses default encodings for unknown locations
+2. **"Customer with ID X not found"**
+   - The customer doesn't exist in your database
+   - Check that the customer_id is correct
 
-3. **Low prediction confidence**
-   - May indicate need for more training data
+3. **Empty or unexpected response**
+   - May indicate the customer has limited purchase history
+   - Check that the model has been trained with sufficient data
    - Consider retraining with more diverse customer data
 
 ### Logs
@@ -224,10 +210,23 @@ docker logs api -f
 
 ## Integration Ideas
 
-1. **Customer Onboarding**: Use for new customers to recommend initial music
-2. **Marketing**: Target customers with genre-specific promotions
+1. **Customer Onboarding**: For existing customers, predict their preferred genre to recommend initial music
+2. **Marketing**: Target customers with genre-specific promotions based on their predicted preferences  
 3. **Inventory**: Stock popular genres based on customer base predictions
 4. **Recommendations**: Combine with collaborative filtering for better recommendations
+5. **Customer Support**: Help support agents understand customer music preferences quickly
+6. **Analytics**: Analyze customer segments by predicted genre preferences
+7. **Personalization**: Customize the UI/UX based on predicted musical tastes
+
+## Benefits of the Simplified Approach
+
+- **Automatic Feature Extraction**: No need to manually calculate customer statistics
+- **Real-time Data**: Uses the latest customer purchase data from the database
+- **Consistency**: Eliminates human error in feature calculation
+- **Simplicity**: Requires only the customer ID and returns only the essential prediction
+- **Scalability**: Can be easily integrated into existing customer workflows
+- **Lightweight Response**: Minimal data transfer for better performance
+- **Easy Integration**: Simple JSON response format that's easy to parse
 
 ## Data Requirements
 
