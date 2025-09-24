@@ -28,13 +28,7 @@ class ApiApp:
         
        
         self.app.add_api_route(
-            "/api/modelo",
-            GenrePredictionController().execute,
-            methods=["POST"],
-        )
-        
-        self.app.add_api_route(
-            "/api/predict-genre",
+            "/api/model",
             GenrePredictionController().execute,
             methods=["POST"],
         )
